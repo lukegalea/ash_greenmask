@@ -29,6 +29,8 @@ defmodule AshGreenmask.Generator do
   strings, one per refusal.
   """
   def build(domains) when is_list(domains) do
+    Enum.each(domains, &Code.ensure_compiled!/1)
+
     resources =
       domains
       |> Enum.flat_map(&Ash.Domain.Info.resources/1)
