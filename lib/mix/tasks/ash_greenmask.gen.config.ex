@@ -27,7 +27,7 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
     {opts, _parsed, _invalid} =
       OptionParser.parse(args, strict: [check: :boolean, out: :string, domain: :keep])
 
-    Mix.Task.run("loadpaths", [])
+    Mix.Task.run("compile", [])
     Mix.Task.run("app.config")
 
     domains =
