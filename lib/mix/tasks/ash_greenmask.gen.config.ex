@@ -20,15 +20,13 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
 
   use Mix.Task
 
+  @requirements ["app.config"]
   @default_out "greenmask.yml"
 
   @impl true
   def run(args) do
     {opts, _parsed, _invalid} =
       OptionParser.parse(args, strict: [check: :boolean, out: :string, domain: :keep])
-
-    Mix.Task.run("compile", [])
-    Mix.Task.run("app.config")
 
     domains =
       case List.wrap(opts[:domain]) do
