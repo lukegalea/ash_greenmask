@@ -187,7 +187,9 @@ defmodule AshGreenmask.Generator do
 
   # A deliberately small YAML writer for this fixed document shape. The
   # generated file must be byte-stable, so everything renders in
-  # declaration order and maps are never hashed.
+  # declaration order and maps are never hashed. A sequence item renders
+  # its FIRST key inline after the dash and the rest aligned under it —
+  # the shape YAML requires of sequence-of-mapping items.
   defp to_yaml(%{} = map, indent) do
     map
     |> Enum.map(fn {key, value} -> render_pair(key, value, indent) end)
@@ -195,15 +197,29 @@ defmodule AshGreenmask.Generator do
   end
 
   defp to_yaml(list, indent) when is_list(list) do
-    Enum.map_join(list, "", fn item ->
-      pad(indent + 1, "- ") <> to_yaml(item, indent + 2)
-    end)
+    Enum.map_join(list, "", &list_item(&1, indent))
   end
 
   defp to_yaml(scalar, _indent), do: "#{scalar(scalar)}\n"
 
-  defp render_pair(key, %{} = nested, indent) when nested == %{} do
-    pad(indent, "#{key}: {}\n")
+  defp list_item(%{} = map, indent) do
+    case Enum.to_list(map) do
+      [] ->
+        pad(indent, "- {}\n")
+
+      [{key, value} | rest] ->
+        # The dash replaces the first pair's pad: "- name: x" with the rest
+        # aligned under `name`, exactly where render_pair(indent + 1) puts them.
+        dash = pad(indent, "- ")
+
+        dash <>
+          (render_pair(key, value, indent + 1) |> String.trim_leading(" ")) <>
+          Enum.map_join(rest, "", fn {k, v} -> render_pair(k, v, indent + 1) end)
+    end
+  end
+
+  defp list_item(other, indent) do
+    pad(indent, "- ") <> to_yaml(other, indent + 1)
   end
 
   defp render_pair(key, %{} = nested, indent) do
@@ -214,10 +230,7 @@ defmodule AshGreenmask.Generator do
     if list == [] do
       pad(indent, "#{key}: []\n")
     else
-      pad(indent, "#{key}:\n") <>
-        Enum.map_join(list, "", fn item ->
-          pad(indent + 1, "- ") <> to_yaml(item, indent + 2)
-        end)
+      pad(indent, "#{key}:\n") <> to_yaml(list, indent + 1)
     end
   end
 
