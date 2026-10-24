@@ -1,0 +1,236 @@
+defmodule AshGreenmask.Generator do
+  @moduledoc """
+  Derives the greenmask YAML from the resource declarations.
+
+  Refuse-by-default lives here, where the whole picture is visible: a
+  `sensitive?` attribute with neither a `transform` nor a `keep` is a
+  generation error naming the resource, the attribute and the reason —
+  never a silent pass-through. What passes through deliberately is stated
+  in the header (the residuals manifest), because an artefact that hides
+  its own gaps is worse than one that declares them.
+
+  The output is deterministic: same declarations, same bytes. That is what
+  makes `--check` a meaningful drift gate.
+  """
+
+  alias AshGreenmask.Catalogue
+  alias AshGreenmask.Info
+
+  @large_objects_note """
+  Large objects pass through untransformed — greenmask's transformers target
+  table data. The dump excludes them by default; keeping them is a pipeline
+  option that also carries this warning.
+  """
+
+  @doc """
+  Builds the greenmask config document (a map) for `domains`.
+
+  Returns `{:ok, document, residuals}` or `{:error, reasons}` — reasons are
+  strings, one per refusal.
+  """
+  def build(domains) when is_list(domains) do
+    resources =
+      domains
+      |> Enum.flat_map(&Ash.Domain.Info.resources/1)
+      |> Enum.uniq()
+      |> Enum.filter(&AshGreenmask.declared?/1)
+
+    with {:ok, tables} <- tables(resources) do
+      residuals = residuals(resources)
+      {:ok, %{transform: tables}, residuals}
+    end
+  end
+
+  defp tables(resources) do
+    {tables, errors} =
+      Enum.reduce(resources, {[], []}, fn resource, {tables, errors} ->
+        case table(resource) do
+          {:ok, table} -> {[table | tables], errors}
+          {:error, reasons} -> {tables, Enum.reverse(reasons) ++ errors}
+        end
+      end)
+
+    case errors do
+      [] -> {:ok, Enum.reverse(tables)}
+      errors -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  defp table(resource) do
+    with {:ok, schema} <- schema(resource),
+         {:ok, name} <- table_name(resource),
+         {:ok, transformers} <- transformers(resource) do
+      {:ok, %{schema: schema, name: name, transformers: transformers}}
+    end
+  end
+
+  defp schema(resource) do
+    case AshPostgres.DataLayer.Info.schema(resource) do
+      nil ->
+        {:error,
+         "#{inspect(resource)} declares a greenmask block but has no postgres schema — the generator refuses to guess where it lives"}
+
+      schema ->
+        {:ok, schema}
+    end
+  end
+
+  defp table_name(resource) do
+    case AshPostgres.DataLayer.Info.table(resource) do
+      nil ->
+        {:error,
+         "#{inspect(resource)} declares a greenmask block but has no postgres table — the generator refuses to guess where it lives"}
+
+      table ->
+        {:ok, table}
+    end
+  end
+
+  defp transformers(resource) do
+    attributes =
+      resource
+      |> Ash.Resource.Info.attributes()
+      |> Map.new(&{&1.name, &1})
+
+    uncovered =
+      attributes
+      |> Enum.filter(fn {_name, attr} -> attr.sensitive? end)
+      |> Enum.reject(fn {name, _attr} -> covered?(resource, name) end)
+      |> Enum.map(fn {name, _attr} ->
+        "#{inspect(resource)}: :#{name} is sensitive and has neither `transform` nor `keep`" <>
+          " — a sensitive attribute with no position is a generation error, never a pass-through." <>
+          " Transform it, or keep it with a `because:` that says why."
+      end)
+
+    transformers =
+      Enum.map(Info.transforms(resource), fn t ->
+        attr = Map.fetch!(attributes, t.attribute)
+        column = attr.source || attr.name
+
+        %{
+          name: Catalogue.greenmask_name(t.transformer),
+          params:
+            Map.new(Enum.concat([[column: to_string(column)], t.options]), fn {k, v} ->
+              {to_string(k), v}
+            end)
+        }
+      end)
+
+    case uncovered do
+      [] -> {:ok, transformers}
+      uncovered -> {:error, uncovered}
+    end
+  end
+
+  defp covered?(resource, name) do
+    Enum.any?(Info.transforms(resource), &(&1.attribute == name)) or
+      Enum.any?(Info.keeps(resource), &(&1.attribute == name))
+  end
+
+  defp residuals(resources) do
+    Enum.flat_map(resources, fn resource ->
+      resource
+      |> Info.residual_because()
+      |> Enum.map(fn {attribute, because} ->
+        "#{inspect(resource)}: :#{attribute} — #{because}"
+      end)
+    end)
+  end
+
+  @doc """
+  Renders the document + residuals as the committed YAML file: a header
+  comment block (generated, residuals, `cmd` warnings, large-objects note)
+  followed by the config body. Deterministic for identical inputs.
+  """
+  def render(document, residuals) do
+    cmd_warnings =
+      document
+      |> cmd_transformers()
+      |> Enum.map(
+        &"#{&1} executes an arbitrary command at dump time. That is the escape hatch, and this header says so on every use."
+      )
+
+    header =
+      [
+        "This file is generated by `mix ash_greenmask.gen.config`. DO NOT EDIT."
+      ] ++
+        [
+          "Regenerate after changing any `greenmask` block; CI fails on drift (`--check`)."
+        ] ++
+        wrap("Residuals — what passes through unchanged, and why:", residuals, "  none") ++
+        wrap("cmd transformers in use:", cmd_warnings, "  none") ++
+        [
+          @large_objects_note,
+          "The salt never lives here: greenmask reads GREENMASK_GLOBAL_SALT from the environment at dump time."
+        ]
+
+    header
+    |> Enum.flat_map(&String.split(&1, "\n"))
+    |> Enum.map(&"# #{&1}\n")
+    |> then(&(&1 ++ to_yaml(document, 0)))
+  end
+
+  defp wrap(_title, [], _empty), do: []
+
+  defp wrap(title, lines, _empty) do
+    [title | Enum.map(lines, &"  - #{&1}")]
+  end
+
+  defp cmd_transformers(%{transform: tables}) do
+    tables
+    |> Enum.flat_map(& &1.transformers)
+    |> Enum.filter(&(&1.name == "Cmd"))
+    |> Enum.map(&"Cmd on #{inspect(&1)}")
+  end
+
+  # A deliberately small YAML writer for this fixed document shape. The
+  # generated file must be byte-stable, so everything renders in
+  # declaration order and maps are never hashed.
+  defp to_yaml(%{} = map, indent) do
+    map
+    |> Enum.map(fn {key, value} -> render_pair(key, value, indent) end)
+    |> Enum.join("")
+  end
+
+  defp to_yaml(list, indent) when is_list(list) do
+    Enum.map_join(list, "", fn item ->
+      pad(indent + 1, "- ") <> to_yaml(item, indent + 2)
+    end)
+  end
+
+  defp to_yaml(scalar, _indent), do: "#{scalar(scalar)}\n"
+
+  defp render_pair(key, %{} = nested, indent) when nested == %{} do
+    pad(indent, "#{key}: {}\n")
+  end
+
+  defp render_pair(key, %{} = nested, indent) do
+    pad(indent, "#{key}:\n") <> to_yaml(nested, indent + 1)
+  end
+
+  defp render_pair(key, list, indent) when is_list(list) do
+    if list == [] do
+      pad(indent, "#{key}: []\n")
+    else
+      pad(indent, "#{key}:\n") <>
+        Enum.map_join(list, "", fn item ->
+          pad(indent + 1, "- ") <> to_yaml(item, indent + 2)
+        end)
+    end
+  end
+
+  defp render_pair(key, value, indent) do
+    pad(indent, "#{key}: #{scalar(value)}\n")
+  end
+
+  defp pad(indent, suffix), do: String.duplicate("  ", indent) <> suffix
+
+  defp scalar(value) when is_nil(value), do: "null"
+  defp scalar(value) when is_binary(value), do: inspect(value)
+  defp scalar(value) when is_atom(value), do: to_string(value)
+
+  defp scalar(value) when is_integer(value) or is_float(value) or is_boolean(value),
+    do: to_string(value)
+
+  defp scalar(value), do: inspect(value)
+end
