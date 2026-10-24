@@ -25,6 +25,8 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
 
   @impl true
   def run(args) do
+    Mix.Task.run("loadpaths", [])
+
     {opts, _parsed, _invalid} =
       OptionParser.parse(args, strict: [check: :boolean, out: :string, domain: :keep])
 
