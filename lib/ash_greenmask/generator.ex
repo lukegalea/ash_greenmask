@@ -178,7 +178,7 @@ defmodule AshGreenmask.Generator do
     [title | Enum.map(lines, &"  - #{&1}")]
   end
 
-  defp cmd_transformers(%{transform: tables}) do
+  defp cmd_transformers(%{transformation: tables}) do
     tables
     |> Enum.flat_map(& &1.transformers)
     |> Enum.filter(&(&1.name == "Cmd"))
