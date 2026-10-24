@@ -39,7 +39,7 @@ defmodule AshGreenmask.Generator do
 
     with {:ok, tables} <- tables(resources) do
       residuals = residuals(resources)
-      {:ok, %{transform: tables}, residuals}
+      {:ok, %{transformation: tables}, residuals}
     end
   end
 

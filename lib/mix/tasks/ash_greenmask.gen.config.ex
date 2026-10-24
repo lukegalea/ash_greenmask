@@ -52,7 +52,7 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
           check(out, rendered)
         else
           File.write!(out, rendered)
-          Mix.shell().info("wrote #{out} (#{length(document.transform)} tables)")
+          Mix.shell().info("wrote #{out} (#{length(document.transformation)} tables)")
           :ok
         end
 

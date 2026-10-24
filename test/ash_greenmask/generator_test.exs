@@ -5,7 +5,7 @@ defmodule AshGreenmask.GeneratorTest do
   alias AshGreenmask.Test.Support
 
   test "builds the greenmask document from declarations" do
-    assert {:ok, %{transform: [table]}, residuals} = Generator.build([Support.Domain])
+    assert {:ok, %{transformation: [table]}, residuals} = Generator.build([Support.Domain])
 
     # Only resources carrying declarations appear.
     assert table.schema == "public"
