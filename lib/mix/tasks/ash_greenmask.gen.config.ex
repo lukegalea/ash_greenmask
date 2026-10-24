@@ -42,6 +42,8 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
           Enum.map(domains, &String.to_atom/1)
       end
 
+    out = opts[:out] || @default_out
+
     case AshGreenmask.Generator.build(domains) do
       {:ok, document, residuals} ->
         rendered = AshGreenmask.Generator.render(document, residuals) |> IO.iodata_to_binary()
