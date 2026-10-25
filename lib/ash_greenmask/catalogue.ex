@@ -117,13 +117,28 @@ defmodule AshGreenmask.Catalogue do
   Whether `transformer` can target an attribute of `ash_type`.
 
   `:any` entries target every type. Otherwise the attribute's type must be
-  in the entry's list (short types like `:string` are compared directly).
+  in the entry's list. Type comparisons normalize module forms to Ash short
+  names: a compiled resource's `Ash.Resource.Info.attributes/1` reports
+  `Ash.Type.String` where the DSL declared `:string`, and both spellings
+  must hit the catalogue.
+
+  Custom types registered via `config :ash, :custom_types` normalize too;
+  unregistered modules stay as-is and refuse, as the catalogue only names
+  short types.
   """
   def targets?(transformer, ash_type) do
+    type = comparable_type(ash_type)
+
     case Map.fetch(@transformers, transformer) do
       {:ok, %{types: :any}} -> true
-      {:ok, %{types: types}} -> ash_type in types
+      {:ok, %{types: types}} -> type in types
       :error -> false
     end
   end
+
+  @short_name_of Ash.Type.Registry.short_names() |> Map.new(fn {short, mod} -> {mod, short} end)
+
+  defp comparable_type({:array, inner}), do: {:array, comparable_type(inner)}
+  defp comparable_type(type) when is_atom(type), do: Map.get(@short_name_of, type, type)
+  defp comparable_type(other), do: other
 end

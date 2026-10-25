@@ -31,6 +31,28 @@ defmodule AshGreenmask.CatalogueTest do
     # unknown names never match
     refute Catalogue.targets?(:definitely_not_a_transformer, :string)
   end
+
+  test "module-form types normalize to short names (compiled-resource shape)" do
+    # A compiled resource's Ash.Resource.Info.attributes/1 reports builtin
+    # types as modules (e.g. Ash.Type.String) even when the DSL declared
+    # :string — both spellings must hit the catalogue (regression: keystone
+    # twins failed `compile --warnings-as-errors` on exactly this).
+    assert Catalogue.targets?(:hash, Ash.Type.String)
+    assert Catalogue.targets?(:masking, Ash.Type.CiString)
+    assert Catalogue.targets?(:random_email, Ash.Type.String)
+    assert Catalogue.targets?(:noise_int, Ash.Type.Integer)
+    refute Catalogue.targets?(:hash, Ash.Type.UUID)
+    refute Catalogue.targets?(:noise_int, Ash.Type.String)
+
+    # :any entries still accept everything
+    assert Catalogue.targets?(:replace, Ash.Type.String)
+    assert Catalogue.targets?(:set_null, Ash.Type.Integer)
+
+    # arrays refuse: the catalogue names scalar types only (v0.1 facts cover
+    # scalar columns; array handling is unverified against the binary)
+    refute Catalogue.targets?(:hash, {:array, Ash.Type.String})
+    refute Catalogue.targets?(:noise_int, {:array, Ash.Type.String})
+  end
 end
 
 defmodule AshGreenmask.VerifierTest do
