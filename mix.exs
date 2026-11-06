@@ -8,7 +8,7 @@ defmodule AshGreenmask.MixProject do
       app: :ash_greenmask,
       version: @version,
       elixirc_paths: elixirc_paths(Mix.env()),
-      elixir: "~> 1.18",
+      elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       package: package(),
