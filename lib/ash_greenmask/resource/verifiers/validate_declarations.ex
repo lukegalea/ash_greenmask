@@ -10,10 +10,12 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
 
   use Spark.Dsl.Verifier
 
+  alias Ash.Resource.Info, as: ResourceInfo
   alias AshGreenmask.Catalogue
   alias AshGreenmask.Resource.Keep
   alias AshGreenmask.Resource.Transform
   alias Spark.Dsl.Verifier
+  alias Spark.Error.DslError
 
   @impl true
   def verify(dsl_state) do
@@ -25,7 +27,7 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
 
     attributes =
       resource
-      |> Ash.Resource.Info.attributes()
+      |> ResourceInfo.attributes()
       |> Map.new(&{&1.name, &1})
 
     transform_errors =
@@ -42,7 +44,7 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
 
     case transform_errors ++ keep_errors do
       [] -> :ok
-      errors -> {:error, Spark.Error.DslError.exception(message: Enum.join(errors, "\n"))}
+      errors -> {:error, DslError.exception(message: Enum.join(errors, "\n"))}
     end
   end
 
