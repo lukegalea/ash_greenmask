@@ -10,47 +10,28 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
 
   use Spark.Dsl.Verifier
 
+  alias Ash.Resource.Info, as: ResourceInfo
   alias AshGreenmask.Catalogue
+  alias AshGreenmask.Resource.Keep
+  alias AshGreenmask.Resource.Transform
   alias Spark.Dsl.Verifier
+  alias Spark.Error.DslError
 
   @impl true
   def verify(dsl_state) do
     entities = Verifier.get_entities(dsl_state, [:greenmask])
-    transforms = Enum.filter(entities, &is_struct(&1, AshGreenmask.Resource.Transform))
+    transforms = Enum.filter(entities, &is_struct(&1, Transform))
     resource = Verifier.get_persisted(dsl_state, :module)
 
-    keeps = Enum.filter(entities, &is_struct(&1, AshGreenmask.Resource.Keep))
+    keeps = Enum.filter(entities, &is_struct(&1, Keep))
 
     attributes =
       resource
-      |> Ash.Resource.Info.attributes()
+      |> ResourceInfo.attributes()
       |> Map.new(&{&1.name, &1})
 
     transform_errors =
-      Enum.flat_map(transforms, fn t ->
-        cond do
-          not Map.has_key?(attributes, t.attribute) ->
-            ["#{inspect(resource)}: transform :#{t.attribute} — no such attribute"]
-
-          is_nil(Catalogue.greenmask_name(t.transformer)) ->
-            [
-              "#{inspect(resource)}: transform :#{t.attribute} — unknown transformer :#{t.transformer}" <>
-                hint(t.transformer)
-            ]
-
-          true ->
-            attr = attributes[t.attribute]
-
-            if Catalogue.targets?(t.transformer, attr.type) do
-              []
-            else
-              [
-                "#{inspect(resource)}: transform :#{t.attribute} — :#{t.transformer} cannot target type #{inspect(attr.type)}" <>
-                  hint(t.transformer)
-              ]
-            end
-        end
-      end)
+      Enum.flat_map(transforms, &transform_errors(&1, resource, attributes))
 
     keep_errors =
       Enum.flat_map(keeps, fn k ->
@@ -63,7 +44,29 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
 
     case transform_errors ++ keep_errors do
       [] -> :ok
-      errors -> {:error, Spark.Error.DslError.exception(message: Enum.join(errors, "\n"))}
+      errors -> {:error, DslError.exception(message: Enum.join(errors, "\n"))}
+    end
+  end
+
+  defp transform_errors(t, resource, attributes) do
+    cond do
+      not Map.has_key?(attributes, t.attribute) ->
+        ["#{inspect(resource)}: transform :#{t.attribute} — no such attribute"]
+
+      is_nil(Catalogue.greenmask_name(t.transformer)) ->
+        [
+          "#{inspect(resource)}: transform :#{t.attribute} — unknown transformer :#{t.transformer}" <>
+            hint(t.transformer)
+        ]
+
+      Catalogue.targets?(t.transformer, attributes[t.attribute].type) ->
+        []
+
+      true ->
+        [
+          "#{inspect(resource)}: transform :#{t.attribute} — :#{t.transformer} cannot target type #{inspect(attributes[t.attribute].type)}" <>
+            hint(t.transformer)
+        ]
     end
   end
 
