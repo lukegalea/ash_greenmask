@@ -192,8 +192,7 @@ defmodule AshGreenmask.Generator do
   # the shape YAML requires of sequence-of-mapping items.
   defp to_yaml(%{} = map, indent) do
     map
-    |> Enum.map(fn {key, value} -> render_pair(key, value, indent) end)
-    |> Enum.join("")
+    |> Enum.map_join("", fn {key, value} -> render_pair(key, value, indent) end)
   end
 
   defp to_yaml(list, indent) when is_list(list) do

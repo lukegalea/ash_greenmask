@@ -3,18 +3,21 @@ defmodule AshGreenmask.Info do
   Introspection over a resource's `greenmask` block.
   """
 
-  @spec transforms(module()) :: [AshGreenmask.Resource.Transform.t()]
+  alias AshGreenmask.Resource.Keep
+  alias AshGreenmask.Resource.Transform
+
+  @spec transforms(module()) :: [Transform.t()]
   def transforms(resource) do
     resource
     |> Spark.Dsl.Extension.get_entities([:greenmask])
-    |> Enum.filter(&is_struct(&1, AshGreenmask.Resource.Transform))
+    |> Enum.filter(&is_struct(&1, Transform))
   end
 
-  @spec keeps(module()) :: [AshGreenmask.Resource.Keep.t()]
+  @spec keeps(module()) :: [Keep.t()]
   def keeps(resource) do
     resource
     |> Spark.Dsl.Extension.get_entities([:greenmask])
-    |> Enum.filter(&is_struct(&1, AshGreenmask.Resource.Keep))
+    |> Enum.filter(&is_struct(&1, Keep))
   end
 
   @doc """
