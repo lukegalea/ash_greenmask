@@ -20,6 +20,15 @@ defmodule AshGreenmask.Test.Support do
     end
   end
 
+  defmodule KeptDomain do
+    @moduledoc false
+    use Ash.Domain
+
+    resources do
+      resource AshGreenmask.Test.Support.Kept
+    end
+  end
+
   defmodule UncoveredDomain do
     @moduledoc false
     use Ash.Domain
@@ -57,6 +66,35 @@ defmodule AshGreenmask.Test.Support do
       transform(:secret_note, :cmd, program: "note-shaper", driver: :json)
       transform(:full_name, :hash, function: "sha3-512")
       keep(:organization_id, because: "tenant key; a copy without it cannot be scoped")
+    end
+  end
+
+  # The keeps are declared against name order, on atoms nothing else in the VM uses,
+  # so the atoms are created in the opposite of name order.
+  defmodule Kept do
+    @moduledoc false
+    use Ash.Resource,
+      domain: AshGreenmask.Test.Support.KeptDomain,
+      data_layer: AshPostgres.DataLayer,
+      extensions: [AshGreenmask.Resource]
+
+    postgres do
+      table "kept"
+      schema("public")
+      repo(AshGreenmask.Test.Support.Repo)
+    end
+
+    attributes do
+      uuid_primary_key :id
+      attribute :zz_greenmask_last, :string, sensitive?: true
+      attribute :mm_greenmask_middle, :string, sensitive?: true
+      attribute :aa_greenmask_first, :string, sensitive?: true
+    end
+
+    greenmask do
+      keep(:zz_greenmask_last, because: "z")
+      keep(:mm_greenmask_middle, because: "m")
+      keep(:aa_greenmask_first, because: "a")
     end
   end
 

@@ -131,8 +131,11 @@ defmodule AshGreenmask.Generator do
 
   defp residuals(resources) do
     Enum.flat_map(resources, fn resource ->
+      # A small atom-keyed map iterates in atom-creation order, which differs between
+      # builds; sorting by name keeps the manifest the same for the same declarations.
       resource
       |> Info.residual_because()
+      |> Enum.sort_by(fn {attribute, _because} -> Atom.to_string(attribute) end)
       |> Enum.map(fn {attribute, because} ->
         "#{inspect(resource)}: :#{attribute} — #{because}"
       end)
