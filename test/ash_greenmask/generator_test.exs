@@ -28,6 +28,18 @@ defmodule AshGreenmask.GeneratorTest do
            ]
   end
 
+  test "a resource's residuals list in attribute-name order, whatever order the atoms were created in" do
+    # Small atom-keyed maps iterate in atom-creation order, which depends on how the
+    # compiler scheduled modules, so an unsorted manifest differs between builds.
+    assert {:ok, _document, residuals} = Generator.build([Support.KeptDomain])
+
+    assert residuals == [
+             "#{inspect(Support.Kept)}: :aa_greenmask_first — a",
+             "#{inspect(Support.Kept)}: :mm_greenmask_middle — m",
+             "#{inspect(Support.Kept)}: :zz_greenmask_last — z"
+           ]
+  end
+
   test "a sensitive attribute with no position refuses generation, naming resource and attribute" do
     assert {:error, reasons} = Generator.build([Support.UncoveredDomain])
     assert [reason] = reasons
