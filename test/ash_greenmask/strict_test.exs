@@ -70,7 +70,9 @@ defmodule AshGreenmask.StrictTest do
     end
 
     test "the rendered config parses as YAML with the same shape" do
-      assert {:ok, document, residuals} = Generator.build([Support.CoveredDomain], layout: :config)
+      assert {:ok, document, residuals} =
+               Generator.build([Support.CoveredDomain], layout: :config)
+
       rendered = document |> Generator.render(residuals) |> IO.iodata_to_binary()
 
       assert {:ok,

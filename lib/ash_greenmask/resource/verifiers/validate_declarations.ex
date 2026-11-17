@@ -43,7 +43,12 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
         end
       end)
 
-    exclude_errors = exclude_errors(Enum.filter(entities, &is_struct(&1, ExcludeData)), resource, transforms ++ keeps)
+    exclude_errors =
+      exclude_errors(
+        Enum.filter(entities, &is_struct(&1, ExcludeData)),
+        resource,
+        transforms ++ keeps
+      )
 
     case transform_errors ++ keep_errors ++ exclude_errors do
       [] -> :ok

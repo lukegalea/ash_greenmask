@@ -158,6 +158,7 @@ defmodule AshGreenmask.Test.Support do
   defmodule Undeclared do
     @moduledoc false
     use Ash.Resource,
+      domain: nil,
       data_layer: AshPostgres.DataLayer
 
     postgres do
@@ -176,6 +177,7 @@ defmodule AshGreenmask.Test.Support do
   defmodule Ledger do
     @moduledoc false
     use Ash.Resource,
+      domain: nil,
       data_layer: AshPostgres.DataLayer,
       extensions: [AshGreenmask.Resource]
 
@@ -199,6 +201,7 @@ defmodule AshGreenmask.Test.Support do
   defmodule InMemory do
     @moduledoc false
     use Ash.Resource,
+      domain: nil,
       data_layer: Ash.DataLayer.Ets
 
     attributes do
@@ -211,6 +214,7 @@ defmodule AshGreenmask.Test.Support do
   defmodule Plain do
     @moduledoc false
     use Ash.Resource,
+      domain: nil,
       data_layer: AshPostgres.DataLayer
 
     postgres do
@@ -228,6 +232,7 @@ defmodule AshGreenmask.Test.Support do
   defmodule PersonAgain do
     @moduledoc false
     use Ash.Resource,
+      domain: nil,
       data_layer: AshPostgres.DataLayer,
       extensions: [AshGreenmask.Resource]
 
