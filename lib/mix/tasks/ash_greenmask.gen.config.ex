@@ -25,9 +25,12 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
         strict?: true,
         # Render the `dump` section greenmask reads, with the `exclude_data`
         # tables and `no-blobs` (`--layout config|fragment` overrides).
-        layout: :config
+        layout: :config,
+        # The schema of a resource whose postgres block names none.
+        default_schema: "public"
 
-  Both default to the v0.1 behaviour (`strict?: false`, `layout: :fragment`).
+  All three default to the v0.1 behaviour (`strict?: false`, `layout: :fragment`,
+  no default schema).
   """
 
   use Mix.Task
@@ -49,7 +52,8 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
 
     build_opts = [
       strict?: Keyword.get(opts, :strict, Application.get_env(:ash_greenmask, :strict?, false)),
-      layout: layout(opts[:layout] || Application.get_env(:ash_greenmask, :layout, :fragment))
+      layout: layout(opts[:layout] || Application.get_env(:ash_greenmask, :layout, :fragment)),
+      default_schema: Application.get_env(:ash_greenmask, :default_schema)
     ]
 
     case AshGreenmask.Generator.build(domains, build_opts) do

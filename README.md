@@ -73,7 +73,8 @@ Generation is **refuse-by-default**:
 ```elixir
 config :ash_greenmask,
   strict?: true,     # refuse a stored sensitive resource with no block (--strict)
-  layout: :config    # render the `dump` section greenmask reads (--layout config)
+  layout: :config,   # render the `dump` section greenmask reads (--layout config)
+  default_schema: "public"  # where a resource with no `schema` in its postgres block lives
 ```
 
 Domains come from `--domain`, else `config :ash, :domains`, else the host

@@ -42,8 +42,11 @@ defmodule AshGreenmask.Generator do
     list; `:config` renders the `dump` section greenmask reads, with the
     `exclude_data` tables in `pg_dump_options.exclude-table-data` and
     `no-blobs` set.
+  - `default_schema` — the schema of a resource that names none (its repo's
+    default, usually `"public"`). Without it such a resource is refused.
   """
-  @type option :: {:strict?, boolean()} | {:layout, :fragment | :config}
+  @type option ::
+          {:strict?, boolean()} | {:layout, :fragment | :config} | {:default_schema, String.t()}
 
   @doc """
   Builds the greenmask config document (a map) for `domains`.
@@ -67,8 +70,10 @@ defmodule AshGreenmask.Generator do
 
     undeclared = if Keyword.get(opts, :strict?, false), do: undeclared(all), else: []
 
-    with {:ok, tables} <- collect(undeclared, table_entries(copied)),
-         {:ok, excluded_tables} <- excluded_tables(excluded),
+    default_schema = Keyword.get(opts, :default_schema)
+
+    with {:ok, tables} <- collect(undeclared, table_entries(copied, default_schema)),
+         {:ok, excluded_tables} <- excluded_tables(excluded, default_schema),
          :ok <- unique_tables(layout, tables, excluded_tables) do
       {:ok, document(layout, tables, excluded_tables), residuals(resources)}
     end
@@ -130,10 +135,10 @@ defmodule AshGreenmask.Generator do
   defp collect(errors, {:ok, _}), do: {:error, errors}
   defp collect(errors, {:error, more}), do: {:error, errors ++ more}
 
-  defp excluded_tables(resources) do
+  defp excluded_tables(resources, default_schema) do
     {names, errors} =
       Enum.reduce(resources, {[], []}, fn resource, {names, errors} ->
-        with {:ok, schema} <- schema(resource),
+        with {:ok, schema} <- schema(resource, default_schema),
              {:ok, name} <- table_name(resource) do
           {["#{schema}.#{name}" | names], errors}
         else
@@ -167,10 +172,10 @@ defmodule AshGreenmask.Generator do
     end
   end
 
-  defp table_entries(resources) do
+  defp table_entries(resources, default_schema) do
     {tables, errors} =
       Enum.reduce(resources, {[], []}, fn resource, {tables, errors} ->
-        case table(resource) do
+        case table(resource, default_schema) do
           {:ok, table} -> {[table | tables], errors}
           {:error, reasons} -> {tables, Enum.reverse(reasons) ++ errors}
         end
@@ -182,19 +187,21 @@ defmodule AshGreenmask.Generator do
     end
   end
 
-  defp table(resource) do
-    with {:ok, schema} <- schema(resource),
+  defp table(resource, default_schema) do
+    with {:ok, schema} <- schema(resource, default_schema),
          {:ok, name} <- table_name(resource),
          {:ok, transformers} <- transformers(resource) do
       {:ok, %{schema: schema, name: name, transformers: transformers}}
+    else
+      {:error, reasons} -> {:error, List.wrap(reasons)}
     end
   end
 
-  defp schema(resource) do
-    case AshPostgres.DataLayer.Info.schema(resource) do
+  defp schema(resource, default) do
+    case AshPostgres.DataLayer.Info.schema(resource) || default do
       nil ->
         {:error,
-         "#{inspect(resource)} declares a greenmask block but has no postgres schema — the generator refuses to guess where it lives"}
+         "#{inspect(resource)} declares a greenmask block but has no postgres schema — the generator refuses to guess where it lives (set `default_schema` to name the one a resource without its own lives in)"}
 
       schema ->
         {:ok, schema}

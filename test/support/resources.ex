@@ -252,4 +252,36 @@ defmodule AshGreenmask.Test.Support do
       transform(:email, :hash)
     end
   end
+
+  defmodule NoSchemaDomain do
+    @moduledoc false
+    use Ash.Domain
+
+    resources do
+      resource AshGreenmask.Test.Support.NoSchema
+    end
+  end
+
+  # A postgres block that names no schema: the repo's default.
+  defmodule NoSchema do
+    @moduledoc false
+    use Ash.Resource,
+      domain: nil,
+      data_layer: AshPostgres.DataLayer,
+      extensions: [AshGreenmask.Resource]
+
+    postgres do
+      table "no_schema"
+      repo(AshGreenmask.Test.Support.Repo)
+    end
+
+    attributes do
+      uuid_primary_key :id
+      attribute :email, :string, sensitive?: true
+    end
+
+    greenmask do
+      transform(:email, :random_email)
+    end
+  end
 end

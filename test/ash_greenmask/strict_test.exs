@@ -84,4 +84,20 @@ defmodule AshGreenmask.StrictTest do
               }} = YamlElixir.read_from_string(rendered)
     end
   end
+
+  describe "a resource whose postgres block names no schema" do
+    test "is refused with a reason, not a crash, when no default schema is set" do
+      assert {:error, [reason]} = Generator.build([Support.NoSchemaDomain])
+
+      assert reason =~
+               "#{inspect(Support.NoSchema)} declares a greenmask block but has no postgres schema"
+    end
+
+    test "lives in the default schema when one is set" do
+      assert {:ok, document, _residuals} =
+               Generator.build([Support.NoSchemaDomain], default_schema: "public")
+
+      assert [%{schema: "public", name: "no_schema"}] = Generator.tables(document)
+    end
+  end
 end
