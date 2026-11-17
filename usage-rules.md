@@ -23,6 +23,12 @@ runtime._
   invariant that makes refuse-by-default a property rather than a promise —
   never weaken it to a warning.
 
+- `exclude_data because: "..."` copies the table's schema and none of its rows
+  (a hash-chained ledger, a view, credentials). It stands alone in its block.
+- Set `config :ash_greenmask, strict?: true` in a host: then a stored resource
+  with a `sensitive?` attribute and no block at all also refuses generation.
+  Without it such a resource is silently skipped.
+
 ## The catalogue is closed
 
 - Transformer names come from `AshGreenmask.Catalogue` only. Adding an entry

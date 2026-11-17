@@ -120,4 +120,131 @@ defmodule AshGreenmask.Test.Support do
       keep(:id, because: "the key")
     end
   end
+
+  defmodule StrictDomain do
+    @moduledoc false
+    use Ash.Domain
+
+    resources do
+      resource AshGreenmask.Test.Support.Undeclared
+      resource AshGreenmask.Test.Support.Ledger
+      resource AshGreenmask.Test.Support.InMemory
+      resource AshGreenmask.Test.Support.Plain
+    end
+  end
+
+  defmodule CoveredDomain do
+    @moduledoc false
+    use Ash.Domain
+
+    resources do
+      resource AshGreenmask.Test.Support.Ledger
+      resource AshGreenmask.Test.Support.InMemory
+      resource AshGreenmask.Test.Support.Plain
+    end
+  end
+
+  defmodule DuplicateDomain do
+    @moduledoc false
+    use Ash.Domain
+
+    resources do
+      resource AshGreenmask.Test.Support.Ledger
+      resource AshGreenmask.Test.Support.PersonAgain
+    end
+  end
+
+  # Stored, sensitive, and no greenmask block at all: the gap strict mode closes.
+  defmodule Undeclared do
+    @moduledoc false
+    use Ash.Resource,
+      data_layer: AshPostgres.DataLayer
+
+    postgres do
+      table "undeclared"
+      schema("public")
+      repo(AshGreenmask.Test.Support.Repo)
+    end
+
+    attributes do
+      uuid_primary_key :id
+      attribute :token, :string, sensitive?: true
+      attribute :email, :string, sensitive?: true
+    end
+  end
+
+  defmodule Ledger do
+    @moduledoc false
+    use Ash.Resource,
+      data_layer: AshPostgres.DataLayer,
+      extensions: [AshGreenmask.Resource]
+
+    postgres do
+      table "ledger"
+      schema("audit")
+      repo(AshGreenmask.Test.Support.Repo)
+    end
+
+    attributes do
+      uuid_primary_key :id
+      attribute :data, :map, sensitive?: true
+    end
+
+    greenmask do
+      exclude_data(because: "hash-chained; a transformed row breaks the chain")
+    end
+  end
+
+  # Not stored in postgres: not in any dump, so strict mode does not ask.
+  defmodule InMemory do
+    @moduledoc false
+    use Ash.Resource,
+      data_layer: Ash.DataLayer.Ets
+
+    attributes do
+      uuid_primary_key :id
+      attribute :secret, :string, sensitive?: true
+    end
+  end
+
+  # Stored, nothing sensitive, no block: nothing to declare.
+  defmodule Plain do
+    @moduledoc false
+    use Ash.Resource,
+      data_layer: AshPostgres.DataLayer
+
+    postgres do
+      table "plain"
+      schema("public")
+      repo(AshGreenmask.Test.Support.Repo)
+    end
+
+    attributes do
+      uuid_primary_key :id
+      attribute :title, :string
+    end
+  end
+
+  defmodule PersonAgain do
+    @moduledoc false
+    use Ash.Resource,
+      data_layer: AshPostgres.DataLayer,
+      extensions: [AshGreenmask.Resource]
+
+    # The same table the ledger excludes, declared a second time.
+    postgres do
+      table "ledger"
+      schema("audit")
+      repo(AshGreenmask.Test.Support.Repo)
+    end
+
+    attributes do
+      uuid_primary_key :id
+      attribute :email, :ci_string, sensitive?: true
+    end
+
+    greenmask do
+      transform(:email, :hash)
+    end
+  end
 end

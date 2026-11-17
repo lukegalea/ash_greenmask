@@ -60,6 +60,7 @@ defmodule AshGreenmask do
   @spec declared?(module()) :: boolean()
   def declared?(resource) do
     AshGreenmask.Info.transforms(resource) != [] or
-      AshGreenmask.Info.keeps(resource) != []
+      AshGreenmask.Info.keeps(resource) != [] or
+      AshGreenmask.Info.exclude_data(resource) != nil
   end
 end
