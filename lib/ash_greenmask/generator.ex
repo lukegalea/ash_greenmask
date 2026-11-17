@@ -256,7 +256,9 @@ defmodule AshGreenmask.Generator do
   defp residuals(resources) do
     Enum.flat_map(resources, fn resource ->
       case Info.exclude_data(resource) do
-        nil -> kept_residuals(resource)
+        nil ->
+          kept_residuals(resource)
+
         %{because: because} ->
           ["#{inspect(resource)}: rows not copied (exclude_data) — #{because}"]
       end
