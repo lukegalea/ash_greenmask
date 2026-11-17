@@ -214,3 +214,72 @@ defmodule AshGreenmask.VerifierTest do
     end
   end
 end
+
+defmodule AshGreenmask.ExcludeDataTest do
+  use ExUnit.Case, async: true
+
+  import ExUnit.CaptureIO
+
+  test "exclude_data beside a transform is a compile-time refusal" do
+    log =
+      capture_io(:stderr, fn ->
+        defmodule ExcludeAndTransform do
+          use Ash.Resource,
+            domain: nil,
+            data_layer: AshPostgres.DataLayer,
+            extensions: [AshGreenmask.Resource]
+
+          postgres do
+            table "ledger"
+            schema("public")
+            repo(AshGreenmask.Test.Support.Repo)
+          end
+
+          attributes do
+            uuid_primary_key :id
+            attribute :email, :string, sensitive?: true
+          end
+
+          greenmask do
+            exclude_data(because: "chained")
+            transform(:email, :random_email)
+          end
+        end
+      end)
+
+    assert log =~ "Spark.Error.DslError"
+    assert log =~ "exclude_data stands alone"
+  end
+
+  test "exclude_data without because is refused by the schema itself" do
+    assert_raise Spark.Error.DslError, ~r/required :because option not found/, fn ->
+      defmodule ExcludeNoReason do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshGreenmask.Resource]
+
+        postgres do
+          table "ledger"
+          schema("public")
+          repo(AshGreenmask.Test.Support.Repo)
+        end
+
+        attributes do
+          uuid_primary_key :id
+        end
+
+        greenmask do
+          exclude_data()
+        end
+      end
+    end
+  end
+
+  test "random_uuid targets a uuid key; hash does not" do
+    assert AshGreenmask.Catalogue.targets?(:random_uuid, Ash.Type.UUID)
+    assert AshGreenmask.Catalogue.targets?(:random_uuid, :uuid_v7)
+    refute AshGreenmask.Catalogue.targets?(:random_uuid, :integer)
+    refute AshGreenmask.Catalogue.targets?(:hash, :uuid)
+  end
+end

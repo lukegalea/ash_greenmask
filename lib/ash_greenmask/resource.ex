@@ -44,9 +44,26 @@ defmodule AshGreenmask.Resource do
     #     keep :organization_id, because: "tenant key; a copy without it cannot be scoped"
   }
 
+  @exclude_data %Spark.Dsl.Entity{
+    name: :exclude_data,
+    args: [],
+    target: AshGreenmask.Resource.ExcludeData,
+    schema: [
+      because: [
+        type: :string,
+        required: true,
+        doc:
+          "Why this table's rows stay out of the copy. Lands verbatim in the generated config's header."
+      ]
+    ]
+    # The table's schema is copied and its rows are not, for a table no
+    # value transform can make safe (a hash-chained ledger, a view):
+    #     exclude_data because: "hash-chained ledger; a transformed row breaks the chain"
+  }
+
   @greenmask %Spark.Dsl.Section{
     name: :greenmask,
-    entities: [@transform, @keep],
+    entities: [@transform, @keep, @exclude_data],
     describe: """
     Declares how this resource's attributes may leave production. Compiles
     to metadata only — no migration, no runtime. The generated greenmask

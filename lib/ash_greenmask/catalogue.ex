@@ -12,7 +12,11 @@ defmodule AshGreenmask.Catalogue do
   `greenmask list-transformers` / `show-transformer`), 2026-10-24. The
   `Hash` engine's parameters: `salt` (env `GREENMASK_GLOBAL_SALT`),
   `function` (sha1, sha256, sha512, sha3-224, sha3-254, sha3-384, sha3-512,
-  md5; default sha3-254), `max_length`.
+  md5; default sha3-254), `max_length`. `Hash` targets `text` and `varchar`
+  only: `greenmask validate` refuses it on a `uuid` or `bytea` column
+  ("unsupported column type"). `RandomUuid` targets `uuid` and, with
+  `engine: "hash"`, is the deterministic choice for a uuid key (checked
+  against v0.2.23, 2026-11-17).
   """
 
   @stringish [:string, :ci_string, :atom]
@@ -85,6 +89,12 @@ defmodule AshGreenmask.Catalogue do
       types: @stringish,
       doc:
         "Deterministic salted hash (SHA-3 family; GREENMASK_GLOBAL_SALT). The referential-continuity engine."
+    },
+    random_uuid: %{
+      greenmask: "RandomUuid",
+      types: [:uuid, :uuid_v7, :string, :ci_string],
+      doc:
+        "A UUID in place of the value. With `engine: \"hash\"` it is deterministic under GREENMASK_GLOBAL_SALT, which is how a uuid key keeps referential continuity: `Hash` targets text and varchar only."
     },
     dict: %{
       greenmask: "Dict",

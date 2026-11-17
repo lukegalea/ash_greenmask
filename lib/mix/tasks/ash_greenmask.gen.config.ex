@@ -11,11 +11,26 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
       mix ash_greenmask.gen.config --check               # fail on drift
       mix ash_greenmask.gen.config --out config/gm.yml   # somewhere else
 
-  Domains are resolved from `config :ash, :domains` unless `--domain` is
-  given (repeatable).
+  Domains come from `--domain` (repeatable), else `config :ash, :domains`,
+  else the host application's own `config :my_app, ash_domains: [...]`.
 
   Refuse-by-default: a `sensitive?` attribute with neither `transform` nor
   `keep` fails generation with the resource, the attribute and the reason.
+
+  ## Configuration
+
+      config :ash_greenmask,
+        # Also refuse a stored resource with a sensitive attribute and no
+        # `greenmask` block at all (`--strict` / `--no-strict` override).
+        strict?: true,
+        # Render the `dump` section greenmask reads, with the `exclude_data`
+        # tables and `no-blobs` (`--layout config|fragment` overrides).
+        layout: :config,
+        # The schema of a resource whose postgres block names none.
+        default_schema: "public"
+
+  All three default to the v0.1 behaviour (`strict?: false`, `layout: :fragment`,
+  no default schema).
   """
 
   use Mix.Task
@@ -28,23 +43,20 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
     Mix.Task.run("loadpaths", [])
 
     {opts, _parsed, _invalid} =
-      OptionParser.parse(args, strict: [check: :boolean, out: :string, domain: :keep])
+      OptionParser.parse(args,
+        strict: [check: :boolean, out: :string, domain: :keep, strict: :boolean, layout: :string]
+      )
 
-    domains =
-      case List.wrap(opts[:domain]) do
-        [] ->
-          Application.get_env(:ash, :domains) ||
-            Mix.raise(
-              "no domains configured: set config :ash, domains: [...] or pass --domain MyApp.Domain"
-            )
-
-        domains ->
-          Enum.map(domains, &String.to_atom/1)
-      end
-
+    domains = domains(opts)
     out = opts[:out] || @default_out
 
-    case AshGreenmask.Generator.build(domains) do
+    build_opts = [
+      strict?: Keyword.get(opts, :strict, Application.get_env(:ash_greenmask, :strict?, false)),
+      layout: layout(opts[:layout] || Application.get_env(:ash_greenmask, :layout, :fragment)),
+      default_schema: Application.get_env(:ash_greenmask, :default_schema)
+    ]
+
+    case AshGreenmask.Generator.build(domains, build_opts) do
       {:ok, document, residuals} ->
         rendered = AshGreenmask.Generator.render(document, residuals) |> IO.iodata_to_binary()
 
@@ -52,7 +64,8 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
           check(out, rendered)
         else
           File.write!(out, rendered)
-          Mix.shell().info("wrote #{out} (#{length(document.transformation)} tables)")
+          tables = length(AshGreenmask.Generator.tables(document))
+          Mix.shell().info("wrote #{out} (#{tables} tables)")
           :ok
         end
 
@@ -64,6 +77,36 @@ defmodule Mix.Tasks.AshGreenmask.Gen.Config do
         )
     end
   end
+
+  @doc false
+  def domains(opts) do
+    case List.wrap(opts[:domain]) do
+      [] ->
+        Application.get_env(:ash, :domains) || host_domains() ||
+          Mix.raise(
+            "no domains configured: set config :ash, domains: [...], config :#{Mix.Project.config()[:app]}, ash_domains: [...], or pass --domain MyApp.Domain"
+          )
+
+      domains ->
+        # Module names given on the command line; Module.concat does not mint
+        # a bare atom from arbitrary input the way String.to_atom/1 would.
+        Enum.map(domains, &Module.concat([&1]))
+    end
+  end
+
+  defp host_domains do
+    case Mix.Project.config()[:app] do
+      nil -> nil
+      app -> Application.get_env(app, :ash_domains)
+    end
+  end
+
+  defp layout(layout) when layout in [:fragment, :config], do: layout
+  defp layout("fragment"), do: :fragment
+  defp layout("config"), do: :config
+
+  defp layout(other),
+    do: Mix.raise("unknown layout #{inspect(other)}: expected fragment or config")
 
   defp check(out, rendered) do
     case File.read(out) do

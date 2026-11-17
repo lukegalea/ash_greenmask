@@ -22,31 +22,160 @@ defmodule AshGreenmask.Generator do
   option that also carries this warning.
   """
 
+  @config_large_objects_note """
+  Large objects are not copied: this config sets `no-blobs`, so their content
+  stays out of the dump and only their metadata (oid, owner) is restored.
+  greenmask's transformers target table data and could not transform them.
+  """
+
+  @config_layout_note """
+  This is the `dump` section of a greenmask config. The pipeline supplies the
+  rest — `common`, `storage` and the connection (for example
+  DUMP_PG_DUMP_OPTIONS_DBNAME) — and never writes them here.
+  """
+
+  @typedoc """
+  - `strict?` — refuse a postgres resource with a `sensitive?` attribute and
+    no `greenmask` block at all (default `false`; without it such a resource
+    is not looked at).
+  - `layout` — `:fragment` (default) renders a top-level `transformation`
+    list; `:config` renders the `dump` section greenmask reads, with the
+    `exclude_data` tables in `pg_dump_options.exclude-table-data` and
+    `no-blobs` set.
+  - `default_schema` — the schema of a resource that names none (its repo's
+    default, usually `"public"`). Without it such a resource is refused.
+  """
+  @type option ::
+          {:strict?, boolean()} | {:layout, :fragment | :config} | {:default_schema, String.t()}
+
   @doc """
   Builds the greenmask config document (a map) for `domains`.
 
   Returns `{:ok, document, residuals}` or `{:error, reasons}` — reasons are
-  strings, one per refusal.
+  strings, one per refusal. See `t:option/0` for `opts`.
   """
-  def build(domains) when is_list(domains) do
+  @spec build([module()], [option()]) ::
+          {:ok, map(), [String.t()]} | {:error, [String.t()]}
+  def build(domains, opts \\ []) when is_list(domains) do
     Enum.each(domains, &Code.ensure_compiled!/1)
+    layout = Keyword.get(opts, :layout, :fragment)
 
-    resources =
+    all =
       domains
       |> Enum.flat_map(&Ash.Domain.Info.resources/1)
       |> Enum.uniq()
-      |> Enum.filter(&AshGreenmask.declared?/1)
 
-    with {:ok, tables} <- tables(resources) do
-      residuals = residuals(resources)
-      {:ok, %{transformation: tables}, residuals}
+    resources = Enum.filter(all, &AshGreenmask.declared?/1)
+    {excluded, copied} = Enum.split_with(resources, &Info.exclude_data/1)
+
+    undeclared = if Keyword.get(opts, :strict?, false), do: undeclared(all), else: []
+
+    default_schema = Keyword.get(opts, :default_schema)
+
+    with {:ok, tables} <- collect(undeclared, table_entries(copied, default_schema)),
+         {:ok, excluded_tables} <- excluded_tables(excluded, default_schema),
+         :ok <- unique_tables(layout, tables, excluded_tables) do
+      {:ok, document(layout, tables, excluded_tables), residuals(resources)}
     end
   end
 
-  defp tables(resources) do
+  @doc "The table entries of a built document, in either layout."
+  @spec tables(map()) :: [map()]
+  def tables(%{"dump" => %{"transformation" => tables}}), do: tables
+  def tables(%{transformation: tables}), do: tables
+
+  defp document(:fragment, tables, _excluded), do: %{transformation: tables}
+
+  defp document(:config, tables, excluded) do
+    options =
+      case excluded do
+        [] -> %{"no-blobs" => true}
+        excluded -> %{"exclude-table-data" => excluded, "no-blobs" => true}
+      end
+
+    # String keys render in byte order on every build; atom keys in a small
+    # map iterate in atom-creation order, which a build does not fix.
+    tables =
+      Enum.map(tables, fn table ->
+        %{
+          "schema" => table.schema,
+          "name" => table.name,
+          "transformers" =>
+            Enum.map(table.transformers, &%{"name" => &1.name, "params" => &1.params})
+        }
+      end)
+
+    %{"dump" => %{"pg_dump_options" => options, "transformation" => tables}}
+  end
+
+  # Strict mode: a stored resource that carries a sensitive attribute and no
+  # block at all is the gap a declared-only scan cannot see.
+  defp undeclared(resources) do
+    for resource <- resources,
+        Ash.Resource.Info.data_layer(resource) == AshPostgres.DataLayer,
+        not AshGreenmask.declared?(resource),
+        sensitive = sensitive_names(resource),
+        sensitive != [] do
+      "#{inspect(resource)}: #{Enum.map_join(sensitive, ", ", &":#{&1}")} " <>
+        "#{if length(sensitive) == 1, do: "is", else: "are"} sensitive and the resource has no `greenmask` block" <>
+        " — in strict mode a sensitive attribute with no position is a generation error, never a pass-through." <>
+        " Transform or keep each one, or exclude the table's rows with `exclude_data`."
+    end
+  end
+
+  defp sensitive_names(resource) do
+    resource
+    |> Ash.Resource.Info.attributes()
+    |> Enum.filter(& &1.sensitive?)
+    |> Enum.map(& &1.name)
+    |> Enum.sort()
+  end
+
+  defp collect([], result), do: result
+  defp collect(errors, {:ok, _}), do: {:error, errors}
+  defp collect(errors, {:error, more}), do: {:error, errors ++ more}
+
+  defp excluded_tables(resources, default_schema) do
+    {names, errors} =
+      Enum.reduce(resources, {[], []}, fn resource, {names, errors} ->
+        with {:ok, schema} <- schema(resource, default_schema),
+             {:ok, name} <- table_name(resource) do
+          {["#{schema}.#{name}" | names], errors}
+        else
+          {:error, reason} -> {names, [reason | errors]}
+        end
+      end)
+
+    case errors do
+      [] -> {:ok, names |> Enum.uniq() |> Enum.sort()}
+      errors -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  # In a config greenmask reads, one table is declared once: two resources
+  # over the same table would leave which transformers apply to the order of
+  # the list.
+  defp unique_tables(:fragment, _tables, _excluded), do: :ok
+
+  defp unique_tables(:config, tables, excluded) do
+    names = Enum.map(tables, &"#{&1.schema}.#{&1.name}") ++ excluded
+
+    case names -- Enum.uniq(names) do
+      [] ->
+        :ok
+
+      duplicates ->
+        {:error,
+         Enum.map(Enum.uniq(duplicates), fn name ->
+           "#{name} is declared by more than one resource — declare its `greenmask` block on one of them"
+         end)}
+    end
+  end
+
+  defp table_entries(resources, default_schema) do
     {tables, errors} =
       Enum.reduce(resources, {[], []}, fn resource, {tables, errors} ->
-        case table(resource) do
+        case table(resource, default_schema) do
           {:ok, table} -> {[table | tables], errors}
           {:error, reasons} -> {tables, Enum.reverse(reasons) ++ errors}
         end
@@ -58,19 +187,21 @@ defmodule AshGreenmask.Generator do
     end
   end
 
-  defp table(resource) do
-    with {:ok, schema} <- schema(resource),
+  defp table(resource, default_schema) do
+    with {:ok, schema} <- schema(resource, default_schema),
          {:ok, name} <- table_name(resource),
          {:ok, transformers} <- transformers(resource) do
       {:ok, %{schema: schema, name: name, transformers: transformers}}
+    else
+      {:error, reasons} -> {:error, List.wrap(reasons)}
     end
   end
 
-  defp schema(resource) do
-    case AshPostgres.DataLayer.Info.schema(resource) do
+  defp schema(resource, default) do
+    case AshPostgres.DataLayer.Info.schema(resource) || default do
       nil ->
         {:error,
-         "#{inspect(resource)} declares a greenmask block but has no postgres schema — the generator refuses to guess where it lives"}
+         "#{inspect(resource)} declares a greenmask block but has no postgres schema — the generator refuses to guess where it lives (set `default_schema` to name the one a resource without its own lives in)"}
 
       schema ->
         {:ok, schema}
@@ -131,14 +262,24 @@ defmodule AshGreenmask.Generator do
 
   defp residuals(resources) do
     Enum.flat_map(resources, fn resource ->
-      # A small atom-keyed map iterates in atom-creation order, which differs between
-      # builds; sorting by name keeps the manifest the same for the same declarations.
-      resource
-      |> Info.residual_because()
-      |> Enum.sort_by(fn {attribute, _because} -> Atom.to_string(attribute) end)
-      |> Enum.map(fn {attribute, because} ->
-        "#{inspect(resource)}: :#{attribute} — #{because}"
-      end)
+      case Info.exclude_data(resource) do
+        nil ->
+          kept_residuals(resource)
+
+        %{because: because} ->
+          ["#{inspect(resource)}: rows not copied (exclude_data) — #{because}"]
+      end
+    end)
+  end
+
+  # A small atom-keyed map iterates in atom-creation order, which differs between
+  # builds; sorting by name keeps the manifest the same for the same declarations.
+  defp kept_residuals(resource) do
+    resource
+    |> Info.residual_because()
+    |> Enum.sort_by(fn {attribute, _because} -> Atom.to_string(attribute) end)
+    |> Enum.map(fn {attribute, because} ->
+      "#{inspect(resource)}: :#{attribute} — #{because}"
     end)
   end
 
@@ -148,6 +289,8 @@ defmodule AshGreenmask.Generator do
   followed by the config body. Deterministic for identical inputs.
   """
   def render(document, residuals) do
+    config? = Map.has_key?(document, "dump")
+
     cmd_warnings =
       document
       |> cmd_transformers()
@@ -165,7 +308,10 @@ defmodule AshGreenmask.Generator do
         wrap("Residuals — what passes through unchanged, and why:", residuals, "  none") ++
         wrap("cmd transformers in use:", cmd_warnings, "  none") ++
         [
-          @large_objects_note,
+          if(config?, do: @config_large_objects_note, else: @large_objects_note)
+        ] ++
+        if(config?, do: [@config_layout_note], else: []) ++
+        [
           "The salt never lives here: greenmask reads GREENMASK_GLOBAL_SALT from the environment at dump time."
         ]
 
@@ -181,12 +327,15 @@ defmodule AshGreenmask.Generator do
     [title | Enum.map(lines, &"  - #{&1}")]
   end
 
-  defp cmd_transformers(%{transformation: tables}) do
-    tables
-    |> Enum.flat_map(& &1.transformers)
-    |> Enum.filter(&(&1.name == "Cmd"))
+  defp cmd_transformers(document) do
+    document
+    |> tables()
+    |> Enum.flat_map(&field(&1, :transformers))
+    |> Enum.filter(&(field(&1, :name) == "Cmd"))
     |> Enum.map(&"Cmd on #{inspect(&1)}")
   end
+
+  defp field(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   # A deliberately small YAML writer for this fixed document shape. The
   # generated file must be byte-stable, so everything renders in

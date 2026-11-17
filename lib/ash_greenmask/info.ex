@@ -3,6 +3,7 @@ defmodule AshGreenmask.Info do
   Introspection over a resource's `greenmask` block.
   """
 
+  alias AshGreenmask.Resource.ExcludeData
   alias AshGreenmask.Resource.Keep
   alias AshGreenmask.Resource.Transform
   alias Spark.Dsl.Extension
@@ -19,6 +20,14 @@ defmodule AshGreenmask.Info do
     resource
     |> Extension.get_entities([:greenmask])
     |> Enum.filter(&is_struct(&1, Keep))
+  end
+
+  @doc "The `exclude_data` declaration, or nil when the table's rows are copied."
+  @spec exclude_data(module()) :: ExcludeData.t() | nil
+  def exclude_data(resource) do
+    resource
+    |> Extension.get_entities([:greenmask])
+    |> Enum.find(&is_struct(&1, ExcludeData))
   end
 
   @doc """

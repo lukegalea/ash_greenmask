@@ -12,6 +12,7 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
 
   alias Ash.Resource.Info, as: ResourceInfo
   alias AshGreenmask.Catalogue
+  alias AshGreenmask.Resource.ExcludeData
   alias AshGreenmask.Resource.Keep
   alias AshGreenmask.Resource.Transform
   alias Spark.Dsl.Verifier
@@ -42,10 +43,31 @@ defmodule AshGreenmask.Resource.Verifiers.ValidateDeclarations do
         end
       end)
 
-    case transform_errors ++ keep_errors do
+    exclude_errors =
+      exclude_errors(
+        Enum.filter(entities, &is_struct(&1, ExcludeData)),
+        resource,
+        transforms ++ keeps
+      )
+
+    case transform_errors ++ keep_errors ++ exclude_errors do
       [] -> :ok
       errors -> {:error, DslError.exception(message: Enum.join(errors, "\n"))}
     end
+  end
+
+  defp exclude_errors([], _resource, _positions), do: []
+
+  defp exclude_errors([_one], _resource, []), do: []
+
+  defp exclude_errors([_one], resource, _positions) do
+    [
+      "#{inspect(resource)}: exclude_data stands alone — a table whose rows stay out of the copy has no attribute to transform or keep"
+    ]
+  end
+
+  defp exclude_errors(_many, resource, _positions) do
+    ["#{inspect(resource)}: exclude_data is declared more than once"]
   end
 
   defp transform_errors(t, resource, attributes) do

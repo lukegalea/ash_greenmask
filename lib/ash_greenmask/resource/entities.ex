@@ -17,3 +17,11 @@ defmodule AshGreenmask.Resource.Keep do
 
   @type t :: %__MODULE__{attribute: atom(), because: String.t()}
 end
+
+defmodule AshGreenmask.Resource.ExcludeData do
+  @moduledoc false
+
+  defstruct [:because, __spark_metadata__: nil]
+
+  @type t :: %__MODULE__{because: String.t()}
+end
