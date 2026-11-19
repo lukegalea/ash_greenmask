@@ -35,7 +35,7 @@ defmodule AshGreenmask.CatalogueTest do
   test "module-form types normalize to short names (compiled-resource shape)" do
     # A compiled resource's Ash.Resource.Info.attributes/1 reports builtin
     # types as modules (e.g. Ash.Type.String) even when the DSL declared
-    # :string — both spellings must hit the catalogue (regression: keystone
+    # :string — both spellings must hit the catalogue (regression: a host app's
     # twins failed `compile --warnings-as-errors` on exactly this).
     assert Catalogue.targets?(:hash, Ash.Type.String)
     assert Catalogue.targets?(:masking, Ash.Type.CiString)
